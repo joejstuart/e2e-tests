@@ -195,3 +195,7 @@ func InitControllerHub(cc *kubeCl.CustomClient) (*ControllerHub, error) {
 		ImageController:           imageController,
 	}, nil
 }
+
+func ChainsSuiteDescribe(text string, body func()) bool {
+	return g.Describe("[chains-suite "+text+"]", g.Ordered, body)
+}
