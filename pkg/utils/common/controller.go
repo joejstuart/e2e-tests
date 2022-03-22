@@ -14,9 +14,10 @@ import (
 
 	"github.com/redhat-appstudio/e2e-tests/pkg/client"
 	rbacv1 "k8s.io/api/rbac/v1"
-	"k8s.io/kubernetes/pkg/client/conditions"
 	rclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+var ErrPodCompleted = fmt.Errorf("pod ran to completion")
 
 // Create the struct for kubernetes clients
 type SuiteController struct {
@@ -77,7 +78,7 @@ func IsPodRunning(pod *corev1.Pod, namespace string) wait.ConditionFunc {
 		case corev1.PodRunning:
 			return true, nil
 		case corev1.PodFailed, corev1.PodSucceeded:
-			return false, conditions.ErrPodCompleted
+			return false, ErrPodCompleted
 		}
 		return false, nil
 	}
@@ -90,7 +91,7 @@ func IsPodSuccessful(pod *corev1.Pod, namespace string) wait.ConditionFunc {
 		case corev1.PodSucceeded:
 			return true, nil
 		case corev1.PodFailed:
-			return false, conditions.ErrPodCompleted
+			return false, ErrPodCompleted
 		}
 		return false, nil
 	}
