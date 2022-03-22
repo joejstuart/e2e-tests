@@ -101,6 +101,15 @@ func (s *SuiteController) IsPodSuccessful(podName, namespace string) wait.Condit
 	}
 }
 
+func TaskPodExists(tr *v1beta1.TaskRun) wait.ConditionFunc {
+	return func() (bool, error) {
+		if tr.Status.PodName != "" {
+			return true, nil
+		}
+		return false, nil
+	}
+}
+
 func (s *SuiteController) ListPods(namespace, labelKey, labelValue string, selectionLimit int64) (*corev1.PodList, error) {
 	labelSelector := metav1.LabelSelector{MatchLabels: map[string]string{labelKey: labelValue}}
 	listOptions := metav1.ListOptions{
@@ -110,7 +119,7 @@ func (s *SuiteController) ListPods(namespace, labelKey, labelValue string, selec
 	return s.KubeInterface().CoreV1().Pods(namespace).List(context.TODO(), listOptions)
 }
 
-func (s *SuiteController) waitForPod(cond wait.ConditionFunc, timeout time.Duration) error {
+func (s *SuiteController) WaitForPod(cond wait.ConditionFunc, timeout time.Duration) error {
 	return wait.PollImmediate(time.Second, timeout, cond)
 }
 
@@ -143,4 +152,23 @@ func (s *SuiteController) GetRoleBinding(rolebindingName, namespace string) (*rb
 
 func (s *SuiteController) GetServiceAccount(saName, namespace string) (*corev1.ServiceAccount, error) {
 	return s.KubeInterface().CoreV1().ServiceAccounts(namespace).Get(context.TODO(), saName, metav1.GetOptions{})
+}
+
+// Create a tekton task and return the task or error
+func (s *SuiteController) CreateTask(task *v1beta1.Task, ns string) (*v1beta1.Task, error) {
+	return s.PipelineClient().TektonV1beta1().Tasks(ns).Create(context.TODO(), task, metav1.CreateOptions{})
+}
+
+// Create a tekton taskRun and return the taskRun or error
+func (s *SuiteController) CreateTaskRun(taskRun *v1beta1.TaskRun, ns string) (*v1beta1.TaskRun, error) {
+	return s.PipelineClient().TektonV1beta1().TaskRuns(ns).Create(context.TODO(), taskRun, metav1.CreateOptions{})
+}
+
+func (s *SuiteController) ListTaskRuns(ns string, labelKey string, labelValue string, selectorLimit int64) (*v1beta1.TaskRunList, error) {
+	labelSelector := metav1.LabelSelector{MatchLabels: map[string]string{labelKey: labelValue}}
+	listOptions := metav1.ListOptions{
+		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
+		Limit:         selectorLimit,
+	}
+	return s.PipelineClient().TektonV1beta1().TaskRuns(ns).List(context.TODO(), listOptions)
 }
