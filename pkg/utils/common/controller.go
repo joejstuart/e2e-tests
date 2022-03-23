@@ -85,6 +85,23 @@ func (s *SuiteController) IsPodRunning(podName, namespace string) wait.Condition
 	}
 }
 
+func (s *SuiteController) GetTaskRun(taskName, namespace string) (*v1beta1.TaskRun, error) {
+	return s.PipelineClient().TektonV1beta1().TaskRuns(namespace).Get(context.TODO(), taskName, metav1.GetOptions{})
+}
+
+func (s *SuiteController) CheckTaskPodExists(taskName, namespace string) wait.ConditionFunc {
+	return func() (bool, error) {
+		tr, err := s.GetTaskRun(taskName, namespace)
+		if err != nil {
+			return false, nil
+		}
+		if tr.Status.PodName != "" {
+			return true, nil
+		}
+		return false, nil
+	}
+}
+
 func (s *SuiteController) IsPodSuccessful(podName, namespace string) wait.ConditionFunc {
 	return func() (bool, error) {
 		pod, err := s.GetPod(namespace, podName)
@@ -135,7 +152,7 @@ func (s *SuiteController) WaitForPodSelector(
 	}
 
 	for i := range podList.Items {
-		if err := s.waitForPod(fn(podList.Items[i].Name, namespace), time.Duration(timeout)*time.Second); err != nil {
+		if err := s.WaitForPod(fn(podList.Items[i].Name, namespace), time.Duration(timeout)*time.Second); err != nil {
 			return err
 		}
 	}

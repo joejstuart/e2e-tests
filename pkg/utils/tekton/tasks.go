@@ -1,19 +1,30 @@
 package tekton
 
 import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/redhat-appstudio/e2e-tests/pkg/utils/common"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// const (
-// 	kanikoTaskName = "kaniko-chains"
-// )
+type KubeController struct {
+	C common.SuiteController
+	T SuiteController
+}
 
-func KanikoTaskRun(namespace string) *v1beta1.TaskRun {
+// This is a demo task to create test image and task signing
+func kanikoTaskRun(image string) *v1beta1.TaskRun {
+	imageInfo := strings.Split(image, "/")
+	namespace := imageInfo[1]
+	imageName := imageInfo[2]
+
 	return &v1beta1.TaskRun{
 		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: "kaniko-taskrun",
+			GenerateName: fmt.Sprintf("kaniko-taskrun-%s", imageName),
 			Namespace:    namespace,
 		},
 		Spec: v1beta1.TaskRunSpec{
@@ -22,7 +33,7 @@ func KanikoTaskRun(namespace string) *v1beta1.TaskRun {
 					Name: "IMAGE",
 					Value: v1beta1.ArrayOrString{
 						Type:      v1beta1.ParamTypeString,
-						StringVal: "image-registry.openshift-image-registry.svc:5000/tekton-chains/kaniko-chains",
+						StringVal: image,
 					},
 				},
 			},
@@ -41,88 +52,61 @@ func KanikoTaskRun(namespace string) *v1beta1.TaskRun {
 	}
 }
 
-// func KanikoTask(namespace, destinationImage string) *v1beta1.Task {
-// 	ref, err := name.ParseReference(destinationImage)
-// 	if err != nil {
-// 		fmt.Printf("unable to parse image name: %v", err)
-// 	}
-// 	return &v1beta1.Task{
-// 		ObjectMeta: metav1.ObjectMeta{
-// 			Name:      kanikoTaskName,
-// 			Namespace: namespace,
-// 		},
-// 		Spec: v1beta1.TaskSpec{
-// 			Results: []v1beta1.TaskResult{
-// 				{Name: "IMAGE_URL"},
-// 				{Name: "IMAGE_DIGEST"},
-// 			},
-// 			Workspaces: []v1beta1.WorkspaceDeclaration{
-// 				{
-// 					Name: "source",
-// 				},
-// 				{
-// 					Name:      "dockerconfig",
-// 					Optional:  true,
-// 					MountPath: "/kaniko/.docker",
-// 				},
-// 			},
-// 			Steps: []v1beta1.Step{
-// 				{
-// 					Container: v1.Container{
-// 						Name:       "add-dockerfile",
-// 						Image:      "bash:latest",
-// 						WorkingDir: "$(workspaces.source.path)",
-// 					},
-// 					Script: "#!/usr/bin/env bash\necho \"FROM alpine@sha256:69e70a79f2d41ab5d637de98c1e0b055206ba40a8145e7bddb55ccc04e13cf8f\" | tee ./Dockerfile",
-// 				}, {
-// 					Container: v1.Container{
-// 						Name:  "build-and-push",
-// 						Image: "gcr.io/kaniko-project/executor:v1.5.1@sha256:c6166717f7fe0b7da44908c986137ecfeab21f31ec3992f6e128fff8a94be8a5",
-// 						Args: []string{
-// 							"--dockerfile=./Dockerfile",
-// 							fmt.Sprintf("--destination=%s", destinationImage),
-// 							"--context=$(workspaces.source.path)/./",
-// 							"--digest-file=$(results.IMAGE_DIGEST.path)",
-// 							// Need this to push the image to the insecure registry
-// 							"--skip-tls-verify=true",
-// 						},
-// 						SecurityContext: &v1.SecurityContext{
-// 							RunAsUser: new(int64),
-// 						},
-// 					},
-// 				}, {
-// 					Container: v1.Container{
-// 						Name:  "write-url",
-// 						Image: "bash:latest",
-// 					},
-// 					Script: fmt.Sprintf("#!/usr/bin/env bash\necho %s | tee $(results.IMAGE_URL.path)", ref.String()),
-// 				},
-// 			},
-// 		},
-// 	}
-// }
+// image is full url to the image
+// Example image: image-registry.openshift-image-registry.svc:5000/tekton-chains/kaniko-chains
+func verifyTaskRun(image, taskName string) *v1beta1.TaskRun {
+	imageInfo := strings.Split(image, "/")
+	namespace := imageInfo[1]
+	imageName := imageInfo[2]
 
-func VerifyKanikoTaskRun(namespace string) *v1beta1.TaskRun {
 	return &v1beta1.TaskRun{
 		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: "verify-kaniko-taskrun",
+			GenerateName: fmt.Sprintf("%s-%s", taskName, imageName),
 			Namespace:    namespace,
 		},
 		Spec: v1beta1.TaskRunSpec{
 			Params: []v1beta1.Param{
 				{
-					Name: "TASK_LABEL",
+					Name: "IMAGE",
 					Value: v1beta1.ArrayOrString{
 						Type:      v1beta1.ParamTypeString,
-						StringVal: "kaniko-chains",
+						StringVal: image,
+					},
+				},
+				{
+					Name: "PUBLIC_KEY",
+					Value: v1beta1.ArrayOrString{
+						Type:      v1beta1.ParamTypeString,
+						StringVal: "k8s://tekton-chains/signing-secrets",
 					},
 				},
 			},
 			TaskRef: &v1beta1.TaskRef{
 				Kind:   v1beta1.NamespacedTaskKind,
-				Name:   "verify-attestation-signature",
-				Bundle: "quay.io/jstuart/appstudio-tasks:latest-2",
+				Name:   taskName,
+				Bundle: "quay.io/jstuart/appstudio-tasks:latest-1",
 			},
 		},
 	}
+}
+
+func (k KubeController) RunKanikoTask(image, ns string, taskTimeout int) (*v1beta1.TaskRun, error) {
+	tr := kanikoTaskRun(image)
+	return k.createAndWait(tr, ns, taskTimeout)
+}
+
+func (k KubeController) WatchTaskPod(tr, ns string, taskTimeout int) error {
+	trUpdated, _ := k.T.GetTaskRun(tr, ns)
+	pod, _ := k.C.GetPod(ns, trUpdated.Status.PodName)
+	return k.C.WaitForPod(k.C.IsPodSuccessful(pod.Name, ns), time.Duration(taskTimeout)*time.Second)
+}
+
+func (k KubeController) RunVerifyTask(taskName, image, ns string, taskTimeout int) (*v1beta1.TaskRun, error) {
+	tr := verifyTaskRun(image, taskName)
+	return k.createAndWait(tr, ns, taskTimeout)
+}
+
+func (k KubeController) createAndWait(tr *v1beta1.TaskRun, ns string, taskTimeout int) (*v1beta1.TaskRun, error) {
+	taskRun, _ := k.T.CreateTaskRun(tr, ns)
+	return taskRun, k.C.WaitForPod(k.T.CheckTaskPodExists(taskRun.Name, ns), time.Duration(taskTimeout)*time.Second)
 }
