@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/yaml"
 
 	"github.com/redhat-appstudio/e2e-tests/pkg/constants"
@@ -73,6 +74,8 @@ var _ = framework.ChainsSuiteDescribe("Tekton Chains E2E tests", Label("ec", "HA
 
 		var policySource []string
 
+		var cm *corev1.ConfigMap
+
 		BeforeAll(func() {
 			kubeController = tekton.KubeController{
 				Commonctrl: *fwk.CommonController,
@@ -92,9 +95,11 @@ var _ = framework.ChainsSuiteDescribe("Tekton Chains E2E tests", Label("ec", "HA
 			}).WithTimeout(1*time.Minute).WithPolling(100*time.Millisecond).Should(
 				BeTrue(), "timed out when waiting for the %q SA to be created", serviceAccountName)
 
-			// the default policy source
+			cm, err = kubeController.Commonctrl.GetConfigMap("ec-defaults", "enterprise-contract-service")
+			Expect(err).ToNot(HaveOccurred())
+
 			policySource = []string{
-				"git::https://github.com/hacbs-contract/ec-policies.git",
+				cm.Data["ec_policy_source"],
 			}
 
 			// if there is a ConfigMap e2e-tests/ec-config with keys `revision` and
@@ -153,8 +158,8 @@ var _ = framework.ChainsSuiteDescribe("Tekton Chains E2E tests", Label("ec", "HA
 		Context("verify-enterprise-contract task", func() {
 			var generator tekton.VerifyEnterpriseContract
 			var rekorHost string
-			var verifyECTaskBundle string
 			publicSecretName := "cosign-public-key"
+			var verifyECTaskBundle string
 
 			BeforeAll(func() {
 				// Copy the public key from tekton-chains/signing-secrets to a new
@@ -170,8 +175,6 @@ var _ = framework.ChainsSuiteDescribe("Tekton Chains E2E tests", Label("ec", "HA
 				Expect(err).ToNot(HaveOccurred())
 				GinkgoWriter.Printf("Configured Rekor host: %s\n", rekorHost)
 
-				cm, err := kubeController.Commonctrl.GetConfigMap("ec-defaults", "enterprise-contract-service")
-				Expect(err).ToNot(HaveOccurred())
 				verifyECTaskBundle = cm.Data["verify_ec_task_bundle"]
 				Expect(verifyECTaskBundle).ToNot(BeEmpty())
 				GinkgoWriter.Printf("Using verify EC task bundle: %s\n", verifyECTaskBundle)
