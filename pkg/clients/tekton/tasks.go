@@ -15,6 +15,10 @@ func (t *TektonController) CreateTask(task *pipeline.Task, ns string) (*pipeline
 	return t.PipelineClient().TektonV1().Tasks(ns).Create(context.Background(), task, metav1.CreateOptions{})
 }
 
+func (t *TektonController) CreateTaskRun(taskRun *pipeline.TaskRun, ns string) (*pipeline.TaskRun, error) {
+	return t.PipelineClient().TektonV1().TaskRuns(ns).Create(context.Background(), taskRun, metav1.CreateOptions{})
+}
+
 // CreateSkopeoCopyTask creates a skopeo copy task in the given namespace.
 func (t *TektonController) CreateSkopeoCopyTask(namespace string) error {
 	_, err := exec.Command(

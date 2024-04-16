@@ -4,9 +4,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
+	g "github.com/onsi/ginkgo/v2"
+	"github.com/redhat-appstudio/e2e-tests/pkg/utils"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/pod"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	pointer "k8s.io/utils/ptr"
 
 	pipeline "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
@@ -162,6 +166,17 @@ func (t *TektonController) GetTaskRunResult(c crclient.Client, pr *pipeline.Pipe
 		"result %q not found in TaskRuns of PipelineRun %s/%s", result, pr.ObjectMeta.Namespace, pr.ObjectMeta.Name)
 }
 
+func (t *TektonController) GetResultFromTaskRun(tr *pipeline.TaskRun, result string) (string, error) {
+	for _, trResult := range tr.Status.TaskRunStatusFields.Results {
+		if trResult.Name == result {
+			// for some reason the result might contain \n suffix
+			return strings.TrimSuffix(trResult.Value.StringVal, "\n"), nil
+		}
+	}
+	return "", fmt.Errorf(
+		"result %q not found in TaskRun %s/%s", result, tr.ObjectMeta.Namespace, tr.ObjectMeta.Name)
+}
+
 // GetTaskRunStatus returns the status of a specified taskRun.
 func (t *TektonController) GetTaskRunStatus(c crclient.Client, pr *pipeline.PipelineRun, pipelineTaskName string) (*pipeline.PipelineRunTaskRunStatus, error) {
 	for _, chr := range pr.Status.ChildReferences {
@@ -195,4 +210,54 @@ func (t *TektonController) GetTaskRunParam(c crclient.Client, pr *pipeline.Pipel
 		}
 	}
 	return "", fmt.Errorf("cannot find param %s from TaskRun %s", paramName, pipelineTaskName)
+}
+
+// WatchTaskRun waits until taskRun finishes.
+func (t *TektonController) WatchTaskRun(taskRunName, namespace string, taskTimeout int) error {
+	g.GinkgoWriter.Printf("Waiting for pipeline %q to finish\n", taskRunName)
+	return utils.WaitUntil(t.CheckTaskRunFinished(taskRunName, namespace), time.Duration(taskTimeout)*time.Second)
+}
+
+// CheckTaskRunFinished checks if taskRun finished.
+func (t *TektonController) CheckTaskRunFinished(taskRunName, namespace string) wait.ConditionFunc {
+	return func() (bool, error) {
+		tr, err := t.GetTaskRun(taskRunName, namespace)
+		if err != nil {
+			return false, nil
+		}
+		if tr.Status.CompletionTime != nil {
+			return true, nil
+		}
+		return false, nil
+	}
+}
+
+// CheckTaskRunSucceeded checks if taskRun succeeded. Returns error if getting taskRun fails.
+func (t *TektonController) CheckTaskRunSucceeded(taskRunName, namespace string) wait.ConditionFunc {
+	return func() (bool, error) {
+		tr, err := t.GetTaskRun(taskRunName, namespace)
+		if err != nil {
+			return false, err
+		}
+		if len(tr.Status.Conditions) > 0 {
+			for _, c := range tr.Status.Conditions {
+				if c.Type == "Succeeded" && c.Status == "True" {
+					return true, nil
+				}
+			}
+		}
+		return false, nil
+	}
+}
+
+func (t *TektonController) RunTaskAndWait(trSpec *pipeline.TaskRun, namespace string) (*pipeline.TaskRun, error) {
+	tr, err := t.CreateTaskRun(trSpec, namespace)
+	if err != nil {
+		return nil, err
+	}
+	err = t.WatchTaskRun(tr.Name, namespace, 100)
+	if err != nil {
+		return nil, err
+	}
+	return t.GetTaskRun(tr.Name, namespace)
 }
