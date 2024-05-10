@@ -107,7 +107,7 @@ var _ = framework.TknBundleSuiteDescribe("tkn bundle task", Label("tasks", "HACB
 		baseTaskRun = taskRunTemplate(taskName, pvcName, bundleImg, resolverRef)
 	})
 
-	DescribeTable("creates Tekton bundles with different params",
+	PDescribeTable("creates Tekton bundles with different params",
 		func(params map[string]string, expectedOutput, notExpectedOutput []string, expectedHomeVar, stepImage string) {
 			for key, val := range params {
 				baseTaskRun.Spec.Params = append(baseTaskRun.Spec.Params, pipeline.Param{
